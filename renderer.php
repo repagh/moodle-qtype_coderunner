@@ -166,6 +166,10 @@ class qtype_coderunner_renderer extends qtype_renderer {
                 'data-lang' => ucwords($currentlanguage),
                 'data-test0' => $question->testcases ? $question->testcases[0]->testcode : ''
         );
+	for ($i = 0; $i < count($question->testcases); $i++) {
+	    $taattributes['extra-test' . strval($i)] =
+	        $question->testcases[$i]->extra;
+	}
 
         if ($options->readonly) {
             $taattributes['readonly'] = 'readonly';
