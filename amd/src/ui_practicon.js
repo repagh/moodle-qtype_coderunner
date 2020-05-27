@@ -3,7 +3,7 @@
  * of the UI plugin architecture, see userinterfacewrapper.js.
  *
  * This plugin replaces the usual textarea answer element with a div
- * containing the author-supplied interface elements. Their serialisation 
+ * containing the author-supplied interface elements. Their serialisation
  * which is what is essentially copied back into the textarea for submissions
  * as the answer, is a JSON object. The fields of that object are the names
  * of all author-supplied HTML elements with a class 'coderunner-ui-element';
@@ -41,23 +41,35 @@
  * @copyright  Richard Lobb, 2018, The University of Canterbury + Rene
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(["jquery"], function ($) {
+define(["jquery", "qtype_coderunner/ui_ace"], function ($, ui_ace) {
+
+    // if this works, we are in question editing mode
+    var textArea = document.getElementById("id_answer");
+    if (textArea !== null) {
+        return ui_ace;
+    }
 
     function PracticonUi(textareaId, width, height, templateParams) {
         this.textArea = $(document.getElementById(textareaId));
         this.readOnly = this.textArea.prop("readonly");
         this.fail = false;
+        this.templateParams = templateParams;
         var i = 0, ifspec;
 
         this.elements = [];
-        while (this.textArea.hasAttribute("extra-test" + i)) {
-            ifspec = JSON.parse(this.textArea.attr("extra-test" + i));
-            if (ifspec !== null) {
-                this.elements.push(ifspec);
+        while (this.textArea.attr("extra-test" + i) !== undefined) {
+            try {
+                ifspec = JSON.parse(this.textArea.attr("extra-test" + i));
+                if (ifspec !== null) {
+                    this.elements.push(ifspec);
+                }
+            } catch (err) {
+                alert("Practicon UI, field definition " + (i+1) +
+                      " is defective");
             }
+            i++;
         }
         this.practiconDiv = null;
-        alert("Practicon UI");
         this.reload();
     }
 
@@ -68,17 +80,17 @@ define(["jquery"], function ($) {
     PracticonUi.prototype.sync = function () {
         var serialisation = {};
 
-        this.getFields().each(function () {
+        this.getFields().forEach(function (elt) {
             var value,
-                type = $(this).attr("type"),
-                name = $(this).attr("name");
+                type = elt.attr("type"),
+                name = elt.attr("name");
             if (type === "checkbox") {
-                value = $(this).is(":checked");
+                value = elt.is(":checked");
             } else {
-                value = $(this).val();
+                value = elt.val();
             }
             if (serialisation.hasOwnProperty(name)) {
-                console.warn("duplicate name '" + name + "' in interface");
+                alert("duplicate name '" + name + "' in interface");
             }
             serialisation[name] = value;
         });
@@ -90,7 +102,7 @@ define(["jquery"], function ($) {
     };
 
     PracticonUi.prototype.getFields = function () {
-        return $(this.htmlDiv).find(".coderunner-ui-element");
+        return $(this.practiconDiv).find(".coderunner-ui-element");
     };
 
     PracticonUi.prototype.setField = function (field, value) {
@@ -104,8 +116,9 @@ define(["jquery"], function ($) {
     PracticonUi.prototype.reload = function () {
         var content = $(this.textArea).val(),
             valuesToLoad = {},
-            html = "<div style='height:fit-content' class='qtype-coderunner-html-outer-div'>",
-            printField = function (elt, values) {
+            foundVariables = {},
+            html = "<div style='height:fit-content' class='qtype-coderunner-html-outer-div fcontainer clearfix'>",
+            printField = function (elt, values, fieldno) {
                 var name = elt.name,
                     type = elt.type,
                     label = elt.label,
@@ -117,25 +130,31 @@ define(["jquery"], function ($) {
                 if (!label) {
                     label = "variable '" + name + "'";
                 }
+                if (!name) {
+                    alert("Practicon UI: name missing at " + fieldno);
+                }
+                if (foundVariables[name]) {
+                    alert("Practicon UI: variable '" + name + "' multiple use");
+                }
                 if (!value) { value = ""; }
-                htm = "<div><span style='display:inline-block;width40%'>" +
-                    label +
-                    "</span><span style='display:inline-block;width60%'>";
+                htm = "<div class='form-group row fitem'><div class='col-md-3'>" +
+                    "<label class='col-form-label d-inline p-2'>" + label +
+                    "</label></div><div class='col-md-9 form-inline felement edit_code p-2' data-fieltype='" + type + "'>";
                 if (type === "text") {
-                    htm += "<input type='text' class='coderunner-ui-element' name='" +
-                        name + "' id='" + name + "' value='" + value + "' size='40'/>";
+                    htm += "<input type='text' class='coderunner-ui-element mform form-inline form-control p-2' name='" +
+                        name + "' id='" + name + "' value='" + value + "' size='80'/>";
                 } else if (type === "checkbox") {
-                    htm += "<input type='checkbox' class='coderunner-ui-element' name='" +
+                    htm += "<input type='checkbox' class='coderunner-ui-element form-check-input' name='" +
                         name + "' id='" + name + "' checked='" + value + "'/>";
                 } else if (type === "textarea") {
-                    htm += "<textarea class='coderunner-ui-element' name='" +
+                    htm += "<textarea class='coderunner-ui-element mform form-control d-block pr-2 pl-2' name='" +
                         name + "' id='" + name +
-                        "' cols='40' rows='8'>" + value + "</textarea>";
+                        "' rows='4'>" + value + "</textarea>";
                 }
-                htm += "</span></div>";
+                htm += "</div></div>";
                 return htm;
             };
-        
+
         if (content) {
             try {
                 valuesToLoad = JSON.parse(content);
@@ -144,20 +163,20 @@ define(["jquery"], function ($) {
             }
         }
 
-        this.elements.each(function () {
-            html += "<div style='border-top-color:gray'>";
-            if (Array.isArray($(this))) {
+        this.elements.forEach(function (elt, index) {
+            html += "<div class='fcontainer clearfix'>";
+            if (Array.isArray(elt)) {
                 // run through all fields
-                $(this).each(function () {
-                    html += printField($(this), valuesToLoad);
+                elt.forEach(function (sub) {
+                    html += printField(sub, valuesToLoad, index);
                 });
             } else {
-                html += printField($(this), valuesToLoad);
+                html += printField(elt, valuesToLoad, index);
             }
             html += "</div>";
         });
         html += "</div>";
-        this.htmlDiv = $(html);
+        this.practiconDiv = $(html);
     };
 
     PracticonUi.prototype.resize = function () { };
@@ -174,8 +193,8 @@ define(["jquery"], function ($) {
 
     PracticonUi.prototype.destroy = function () {
         this.sync();
-        $(this.htmlDiv).remove();
-        this.htmlDiv = null;
+        $(this.practiconDiv).remove();
+        this.practiconDiv = null;
     };
 
     return {
