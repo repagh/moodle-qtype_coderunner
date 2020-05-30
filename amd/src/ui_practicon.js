@@ -5,7 +5,8 @@
  * This plugin replaces the usual textarea answer element with a div
  * containing the author-supplied interface elements. Their serialisation
  * which is what is essentially copied back into the textarea for submissions
- * as the answer, is a JSON object. The fields of that object are the names
+ * as the answer, is a JSON object. The fields are defined by JSON definitions
+ * in the The fields of that object are the names
  * of all author-supplied HTML elements with a class 'coderunner-ui-element';
  * all such objects are expected to have a 'name' attribute as well. The
  * associated field values are lists. Each list contains all the values, in
@@ -38,10 +39,11 @@
  *
  * @package    qtype
  * @subpackage coderunner
- * @copyright  Richard Lobb, 2018, The University of Canterbury + Rene
+ * @copyright  Rene van Paassen, 2020, Delft University of Techonology,
+ *             based on code by Richard Lobb, 2018, The University of Canterbury
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
-define(["jquery", "qtype_coderunner/ui_ace"], function ($, ui_ace) {
+define(["jquery", "qtype_coderunner/ui_ace"], function($, ui_ace) {
 
     // if this works, we are in question editing mode
     var textArea = document.getElementById("id_answer");
@@ -80,37 +82,42 @@ define(["jquery", "qtype_coderunner/ui_ace"], function ($, ui_ace) {
     PracticonUi.prototype.sync = function () {
         var serialisation = {};
 
-        this.getFields().forEach(function (elt) {
+        this.getFields().each(function () {
             var value,
-                type = elt.attr("type"),
-                name = elt.attr("name");
+                type = $(this).attr("type"),
+                name = $(this).attr("name");
             if (type === "checkbox") {
-                value = elt.is(":checked");
+                value = $(this).prop("checked") ? 1 : 0;
+            } else if (type === "radio") {
+                if ($(this).prop("checked")) {
+                    value = $(this).val();
+                }
             } else {
-                value = elt.val();
+                value = $(this).val();
             }
-            if (serialisation.hasOwnProperty(name)) {
-                alert("duplicate name '" + name + "' in interface");
+            if (value !== undefined) {
+                if (serialisation.hasOwnProperty(name)) {
+                    alert("duplicate name '" + name + "' in interface");
+                }
+                serialisation[name] = value;
             }
-            serialisation[name] = value;
         });
         this.textArea.val(JSON.stringify(serialisation));
     };
 
     PracticonUi.prototype.getElement = function () {
+        /* restart MathJax if present. Note that MathJax is only loaded
+           if there is an equation in the question text. */
+        if (window) {
+            if (window.MathJax) {
+                window.MathJax.Hub.Queue(["Typeset", window.MathJax.Hub]);
+            }
+        }
         return this.practiconDiv;
     };
 
     PracticonUi.prototype.getFields = function () {
         return $(this.practiconDiv).find(".coderunner-ui-element");
-    };
-
-    PracticonUi.prototype.setField = function (field, value) {
-        if (field.attr("type") === "checkbox") {
-            field.prop("checked", field.val() === value);
-        } else {
-            field.val(value);
-        }
     };
 
     PracticonUi.prototype.reload = function () {
@@ -122,7 +129,9 @@ define(["jquery", "qtype_coderunner/ui_ace"], function ($, ui_ace) {
                 var name = elt.name,
                     type = elt.type,
                     label = elt.label,
+                    text = elt.text,
                     value = values[name],
+                    i,
                     htm;
                 if (!type) {
                     type = "text";
@@ -138,18 +147,30 @@ define(["jquery", "qtype_coderunner/ui_ace"], function ($, ui_ace) {
                 }
                 if (!value) { value = ""; }
                 htm = "<div class='form-group row fitem'><div class='col-md-3'>" +
-                    "<label class='col-form-label d-inline p-2'>" + label +
-                    "</label></div><div class='col-md-9 form-inline felement edit_code p-2' data-fieltype='" + type + "'>";
+                    "<label class='col-form-label d-inline mx-2 answerprompt'>" + label +
+                    "</label></div><div class='col-md-9 form-inline felement edit_code' data-fieltype='" + type + "'>";
                 if (type === "text") {
-                    htm += "<input type='text' class='coderunner-ui-element mform form-inline form-control p-2' name='" +
+                    htm += "<input type='text' class='coderunner-ui-element mform form-inline form-control" +
+                        " mx-2' style='width: 100%' name='" +
                         name + "' id='" + name + "' value='" + value + "' size='80'/>";
                 } else if (type === "checkbox") {
-                    htm += "<input type='checkbox' class='coderunner-ui-element form-check-input' name='" +
-                        name + "' id='" + name + "' checked='" + value + "'/>";
+                    htm += "<label><input type='checkbox' class='coderunner-ui-element form-check-input mx-2' name='" +
+                        name + "' id='" + name +
+                        (value ? "' checked='1' />" : "' />") +
+                        text + "</label>";
                 } else if (type === "textarea") {
-                    htm += "<textarea class='coderunner-ui-element mform form-control d-block pr-2 pl-2' name='" +
+                    htm += "<textarea class='coderunner-ui-element edit_code mform form-control d-block mx-2' name='" +
                         name + "' id='" + name +
                         "' rows='4'>" + value + "</textarea>";
+                } else if (type === "radio") {
+                    htm += '<div>';
+                    for (i = 0; i < text.length; i++) {
+                        htm += "<p><input type='radio' name='" + name +
+                            "' class='coderunner-ui-element form-radio-input mx-2' value='" + (i + 1) +
+                            (value == (i + 1) ? "' checked>" : "'>") +
+                            text[i] + "</p>";
+                    }
+                    html += '</div>';
                 }
                 htm += "</div></div>";
                 return htm;
