@@ -146,33 +146,40 @@ define(["jquery", "qtype_coderunner/ui_ace"], function($, ui_ace) {
                     alert("Practicon UI: variable '" + name + "' multiple use");
                 }
                 if (!value) { value = ""; }
-                htm = "<div class='form-group row fitem'><div class='col-md-3'>" +
-                    "<label class='col-form-label d-inline mx-2 answerprompt'>" + label +
-                    "</label></div><div class='col-md-9 form-inline felement edit_code' data-fieltype='" + type + "'>";
+                // per question check div with line
+                htm = "<div class='form-group row fitem border-bottom px-4'>";
                 if (type === "text") {
-                    htm += "<input type='text' class='coderunner-ui-element mform form-inline form-control" +
-                        " mx-2' style='width: 100%' name='" +
-                        name + "' id='" + name + "' value='" + value + "' size='80'/>";
+                    htm += "<div class='col-md-8'>" +
+                        "<label class='col-form-label d-inline answerprompt'>" + label +
+                        "</label></div><div class='col-md-4 form-inline felement edit_code' data-fieldtype='text'>" +
+                        "<input type='text' class='coderunner-ui-element mform form-inline form-control'" +
+                        " style='width: 100%' name='" +
+                        name + "' id='" + name + "' value='" + value + "' size='80'/></div>";
                 } else if (type === "checkbox") {
-                    htm += "<label><input type='checkbox' class='coderunner-ui-element form-check-input mx-2' name='" +
-                        name + "' id='" + name +
-                        (value ? "' checked='1' />" : "' />") +
-                        text + "</label>";
+                    htm += "<div class='col-md-1 form-inline felement edit_code' data-fieldtype='checkbox'>" +
+                        "<input type='checkbox' class='coderunner-ui-element form-check-input' name='" +
+                        name + "' id='" + name + (value ? "' checked='1' />" : "' />") +
+                        "</div><div class='col-md-11'><label class='col-form-label d-inline answerprompt'>" +
+                        text + "</label></div>";
                 } else if (type === "textarea") {
-                    htm += "<textarea class='coderunner-ui-element edit_code mform form-control d-block mx-2' name='" +
+                    htm += "<div class='col-md-4'>" +
+                        "<label class='col-form-label d-inline answerprompt'>" + label +
+                        "</label></div><div class='col-md-8 form-inline felement edit_code' data-fieldtype='textarea'>" +
+                        "<textarea class='coderunner-ui-element edit_code mform form-control d-block' name='" +
                         name + "' id='" + name +
-                        "' rows='4'>" + value + "</textarea>";
+                        "' rows='3'>" + value + "</textarea></div>";
                 } else if (type === "radio") {
-                    htm += '<div>';
                     for (i = 0; i < text.length; i++) {
-                        htm += "<p><input type='radio' name='" + name +
-                            "' class='coderunner-ui-element form-radio-input mx-2' value='" + (i + 1) +
-                            (value == (i + 1) ? "' checked>" : "'>") +
-                            text[i] + "</p>";
+                        htm += "" +
+                            "<div class='col-md-1 form-inline felement edit_code' data-fieldtype='radio'>" +
+                            "<input type='radio' name='" + name +
+                            "' class='coderunner-ui-element form-radio-input' value='" + (i + 1) +
+                            (value == (i + 1) ? "' checked/>" : "'/>") + "</div><div class='col-md-11'>" +
+                            "<label class='col-form-label d-inline answerprompt'>" +
+                            text[i] + "</label></div>";
                     }
-                    html += '</div>';
                 }
-                htm += "</div></div>";
+                htm += "</div>";
                 return htm;
             };
 
