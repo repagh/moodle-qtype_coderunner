@@ -1,9 +1,86 @@
 # CHANGE HISTORY
 
-# 04 May 2020. 3.7.7
+### 9 May 2021. 4.0.2
+ * Added a `lines_per_cell` parameter to the table UI.
+ * Bug fix: template preprocessor runs broke if a student had an apostrophe or space
+   within their first or last names.
+ * Bug fix in 4.0.0: Ace editor hung in a render loop when displaying template parameter
+   field.
+ * Bug fix: PHP errors were generated if the template parameters were bad, e.g.
+   if a template parameter preprocessor run failed.
+ * Bug fix: the sample answer for multilanguage questions was not being
+   correctly displayed in a quiz review.
+
+
+### 2 March 2021. 4.0.0
+ * Add template parameter preprocessing capability that allows uses of languages
+   other than Twig for generating the JSON template parameter set.
+ * Separate UI-plugin parameters from template parameters and provide an improved UI
+   that lists all available UI parameters and their meanings for the currently
+   selected UI.
+ * Update Twig to the latest version (3.1). 
+ * Add QUESTION.stepinfo to the Twig environment. This is a record with attributes
+   preferredbehaviour, numchecks, numprechecks and fraction allowing authors
+   to provide more elaborate feedback according to quiz mode and previous submissions.
+ * Add a macro \_\_\_textareaId\_\_\_ to the HTML-UI that gets replaced by the id
+   of the textarea element that the HTML-UI is operating on.
+ * Add special \_\_twigprefix\_\_ that, if defined in a question's prototype,
+   provides content (e.g. Twig macros) that is inserted at the start of all
+   Twig-expanded question fields.
+ * Reduce unnecessary calls to the Jobe server to get its list of supported
+   languages when there is only one sandbox available (the usual case nowadays).
+ * Bug fix: nodejs programs in ESM style were breaking. So change filename extension to .js
+ * Bug fix: Ace plugin was generating duplicate (and wrong) ids when multiple
+    ace editors were present in a form.
+ * Bug fix: Ace editor was not being initialised to the correct language with multilanguage
+   questions for which an explicit default language was specified.
+ * Bug fix: some non-inherited fields were being mistakenly loaded from the
+    prototype when changing question type via Ajax.
+ * Bug fix: %h formats for columns were being ignored in the "For example" table.
+
+### 15 October 2020. 3.7.9+
+
+ * Bug fix: built-in prototypes for directed-graph and undirected graph give
+   Python exception if user drags edge labels.
+ * Workaround for issue #103 - CodeRunner upgrade failing with Moodle versions above 3.9.1+
+ * Minor documentation tweaks.
+
+### 3 July 2020. 3.7.9
+
+ * Several graphUI enhancements: undo/redo, cursor movement with arrow keys when
+   editing text, dragging of link label text, adding of a Clear button (thanks Eric Song).
+ * Removed now-defunct linklabelreldist template parameter from graphUI.
+ * Improved (I hope) display of bulk test categories.
+ * Remove "Experimental" tag from various established features.
+ * Bug fix: embedded example code in the author form's on-line help was not being displayed
+   in Moodle 3.9.
+ * Bug fix: files attached to a question as part of the sample answer were not being
+   copied into the course backup.
+ * Bug fix: html\_UI questions were not displaying the author's sample answer.
+ * Bug fix: customising a question to use a non-standard Jobe server did not
+   work if that server required an API key.
+ * Several documentation tweaks.
+ 
+
+### 26 June 2020. 3.7.8
+
+ * Correct faulty documentation of import of html module within Twig and
+   misuse of htmlentities in documentation.
+ * Bug fix: displaying the question author's solution to a question with the
+   UI plugin explicitly set to None generates a PHP warning regarding an undefined
+   constant fieldid.
+ * Bug fix: The Show Differences button was comparing the wrong two columns
+   in Moodle 3.9.
+ * Add a linklabelreldist template parameter to the GraphUI to allow positioning
+   of link labels at relative distances other than 0.5 along the link. Supported
+   only with straight links.
+ * Two tweaks to the test suite.
+
+### 11 May 2020. 3.7.7
 
  * Bug fix: viewing of combinator grader outputs from previous versions of
    CodeRunner gave Undefined property: $outputonly PHP Notices.
+ * Add graphui demo question to samples.
 
 ### 19 April 2020. 3.7.6
 

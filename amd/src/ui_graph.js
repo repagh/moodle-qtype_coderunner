@@ -48,8 +48,6 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
-
-
 define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'], function($, util, elements) {
 
     /***********************************************************************
@@ -112,7 +110,7 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
      *
      *  This is the ui component for a graph-drawing coderunner question.
      *
-     *  Relevant template parameters:
+     *  Relevant ui parameters:
      *
      *  isfsm. True if the graph is of a Finite State Machine.
      *         If true, the graph can contain an incoming edge from nowhere
@@ -121,7 +119,8 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
      *  noderadius. The radius of a node, in pixels. Default: 26.
      *  fontsize. The font size used for node and edge labels. Default: 20 points.
      *  textoffset. An offset in pixels used to determine how far from the link
-     *             a label is positioned. Default 4.
+     *             a label is initially positioned. Default 5. Largely defunct
+     *             now that link text can be dragged.
      *  helpmenutext. A string to be used in lieu of the default Help info, if supplied.
      *               No default.
      *  locknodepositions. True to prevent the user from moving nodes. Useful when the
@@ -131,6 +130,8 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
      *             added and deleted. See locknodeset.
      *  locknodeset. True to prevent the user from adding or deleting nodes, or
      *             toggling node types to/from acceptors.
+     *  locknodelabels: True to prevent the user from editing node labels. This
+     *             will also prevent any new nodes having non-empty labels.
      *  lockedgepositions. True to prevent the user from dragging edges to change
      *             their curvature. Possibly useful if the answer box is
      *             preloaded with a graph that the student has to annotate by
@@ -139,55 +140,64 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
      *             to draw a polygon on a set of given points. Note, though that
      *             edges can still be added and deleted. See lockedgeset.
      *  lockedgeset. True to prevent the user from adding or deleting edges.
-     *  locknodelabels: True to prevent the user from editing node labels. This
-     *             will also prevent any new nodes having non-empty labels.
      *  lockedgelabels: True to prevent the user from editing edge labels. This
      *             also prevents any new edges from having labels.
      *
      ***********************************************************************/
 
-    function Graph(textareaId, width, height, templateParams) {
+    function Graph(textareaId, width, height, uiParams) {
         // Constructor.
         var save_this = this;
 
         this.SNAP_TO_PADDING = 6;
         this.DUPLICATE_LINK_OFFSET = 16; // Pixels offset for a duplicate link
         this.HIT_TARGET_PADDING = 6;    // Pixels.
-        this.DEFAULT_NODE_RADIUS = 26;  // Pixels. Template parameter noderadius can override this.
-        this.DEFAULT_FONT_SIZE = 20;    // px. Template parameter fontsize can override this.
-        this.DEFAULT_TEXT_OFFSET = 4;   // Link label tweak. Template params can override.
+        this.DEFAULT_NODE_RADIUS = 26;  // Pixels. UI parameter noderadius can override this.
+        this.DEFAULT_FONT_SIZE = 20;    // px. UI parameter fontsize can override this.
+        this.DEFAULT_TEXT_OFFSET = 5;   // Link label tweak. UI params can override.
+        this.DEFAULT_LINK_LABEL_REL_DIST = 0.5;  // Relative distance along link to place labels
+        this.MAX_VERSIONS = 30;  // Maximum number of versions saved for undo/redo
 
         this.canvasId = 'graphcanvas_' + textareaId;
         this.textArea = $(document.getElementById(textareaId));
         this.helpText = ''; // Obtained by JSON - see below.
         this.readOnly = this.textArea.prop('readonly');
-        this.templateParams = templateParams;
+        this.uiParams = uiParams;
         this.graphCanvas = new GraphCanvas(this,  this.canvasId, width, height);
         this.caretVisible = true;
         this.caretTimer = 0;  // Need global so we can kill a running timer.
         this.originalClick = null;
         this.nodes = [];
         this.links = [];
-        this.helpBox = new elements.HelpBox(this, 0, 0);
-        this.helpBoxHighlighted = false;
-        this.selectedObject = null; // Either a elements.Link or a elements.Node.
+        this.selectedObject = null; // Either a elements.Link or a elements.Node or a elements.Button.
         this.currentLink = null;
         this.movingObject = false;
         this.fail = false;  // Will be set true if reload fails (can't deserialise).
         this.failString = null;  // Language string key for fail error message.
+        this.versions = [];
+        this.versionIndex = -1; //Index of current state of graph in versions list
+
+        this.helpBox = new elements.HelpBox(this, 0, 0);   // Button that opens a help text box
+        this.clearButton = new elements.Button(this, 60, 0, "Clear");    // Button that clears the canvas
+        this.clearButton.onClick = function() {
+          if (confirm("Are you sure you want to clear the diagram?")) {
+              this.parent.clear();
+          }
+        };
+        this.buttons = [this.helpBox, this.clearButton];
 
         // Legacy support for locknodes and lockedges.
-        if ('locknodes' in templateParams) {
-            templateParams.locknodepositions = templateParams.locknodes;
+        if ('locknodes' in uiParams) {
+            uiParams.locknodepositions = uiParams.locknodes;
         }
-        if ('lockedges' in templateParams) {
-            templateParams.lockedgepositions = templateParams.lockedges;
+        if ('lockedges' in uiParams) {
+            uiParams.lockedgepositions = uiParams.lockedges;
         }
 
-        if ('helpmenutext' in templateParams) {
-            this.helpText = templateParams.helpmenutext;
+        if ('helpmenutext' in uiParams) {
+            this.helpText = uiParams.helpmenutext;
         } else {
-            require(['core/str'], function(str) {
+          require(['core/str'], function(str) {
                 // Get help text via AJAX.
                 var helpPresent = str.get_string('graphhelp', 'qtype_coderunner');
                 $.when(helpPresent).done(function(graphhelp) {
@@ -223,25 +233,25 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
     };
 
     Graph.prototype.nodeRadius = function() {
-        return this.templateParams.noderadius ? this.templateParams.noderadius : this.DEFAULT_NODE_RADIUS;
+        return this.uiParams.noderadius ? this.uiParams.noderadius : this.DEFAULT_NODE_RADIUS;
     };
 
     Graph.prototype.fontSize = function() {
-        return this.templateParams.fontsize ? this.templateParams.fontsize : this.DEFAULT_FONT_SIZE;
+        return this.uiParams.fontsize ? this.uiParams.fontsize : this.DEFAULT_FONT_SIZE;
     };
 
     Graph.prototype.isFsm = function() {
-        return this.templateParams.isfsm !== undefined ? this.templateParams.isfsm : true;
+        return this.uiParams.isfsm !== undefined ? this.uiParams.isfsm : true;
     };
 
 
     Graph.prototype.textOffset = function() {
-        return this.templateParams.textoffset ? this.templateParams.textoffset : this.DEFAULT_TEXT_OFFSET;
+        return this.uiParams.textoffset ? this.uiParams.textoffset : this.DEFAULT_TEXT_OFFSET;
     };
 
     // Draw an arrow head if this is a directed graph. Otherwise do nothing.
     Graph.prototype.arrowIfReqd = function(c, x, y, angle) {
-        if (this.templateParams.isdirected === undefined || this.templateParams.isdirected) {
+        if (this.uiParams.isdirected === undefined || this.uiParams.isdirected) {
             util.drawArrow(c, x, y, angle);
         }
     };
@@ -249,6 +259,11 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
     // Copy the serialised version of the graph to the TextArea.
     Graph.prototype.sync = function() {
         // Nothing to do ... always sync'd.
+    };
+
+    // Disable autosync, too.
+    Graph.prototype.syncIntervalSecs = function() {
+        return 0;
     };
 
     Graph.prototype.keypress = function(e) {
@@ -263,10 +278,15 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                   !e.metaKey &&
                   !e.altKey &&
                   !e.ctrlKey &&
+                  key !== 37 &&  //Don't register arrow keys
+                  key !== 39 &&
                   this.selectedObject !== null &&
                   this.canEditText()) {
-
-            this.selectedObject.text += String.fromCharCode(key);
+            if (this.selectedObject.justMoved) {
+                this.saveVersion();
+            }
+            this.selectedObject.justMoved = false;
+            this.selectedObject.textBox.insertChar(String.fromCharCode(key));
             this.resetCaret();
             this.draw();
 
@@ -288,29 +308,45 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
         this.selectedObject = this.selectObject(mouse.x, mouse.y);
         this.movingObject = false;
         this.movingGraph = false;
+        this.movingText = false;
         this.originalClick = mouse;
 
+        this.saveVersion();
+
+        if (this.selectedObject !== this.helpBox){
+            this.helpBox.helpOpen = false;
+        }
+
         if(this.selectedObject !== null) {
-            if(e.shiftKey && this.selectedObject instanceof elements.Node) {
-                if (!this.templateParams.lockedgeset) {
+            if(this.selectedObject instanceof elements.Button){
+               this.selectedObject.onClick();
+           } else if(e.shiftKey && this.selectedObject instanceof elements.Node) {
+                if (!this.uiParams.lockedgeset) {
                     this.currentLink = new elements.SelfLink(this, this.selectedObject, mouse);
                 }
             } else if (e.altKey && this.selectedObject instanceof elements.Node) {
                 // Moving an entire connected graph component.
-                if (!this.templateParams.locknodepositions) {
+                if (!this.uiParams.locknodepositions) {
                     this.movingGraph = true;
                     this.movingNodes = this.selectedObject.traverseGraph(this.links, []);
                     for (var i = 0; i < this.movingNodes.length; i++) {
                         this.movingNodes[i].setMouseStart(mouse.x, mouse.y);
                     }
                 }
-            } else if (!(this.templateParams.locknodepositions && this.selectedObject instanceof elements.Node) &&
-                       !(this.templateParams.lockedgepositions && this.selectedObject instanceof elements.Link)){
+            } else if (this.selectedObject instanceof elements.TextBox){
+                if (!this.uiParams.lockedgelabels) {
+                    this.movingText = true;
+                    this.selectedObject.setMouseStart(mouse.x, mouse.y);
+                    this.selectedObject = this.selectedObject.parent;
+                }
+            } else if (!(this.uiParams.locknodepositions && this.selectedObject instanceof elements.Node) &&
+                       !(this.uiParams.lockedgepositions && this.selectedObject instanceof elements.Link)){
                 this.movingObject = true;
                 if(this.selectedObject.setMouseStart) {
                     this.selectedObject.setMouseStart(mouse.x, mouse.y);
                 }
             }
+            this.selectedObject.justMoved = true;
             this.resetCaret();
         } else if(e.shiftKey && this.isFsm()) {
             this.currentLink = new elements.TemporaryLink(this, mouse, mouse);
@@ -334,9 +370,9 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
         var isNode = this.selectedObject instanceof elements.Node,
             isLink = (this.selectedObject instanceof elements.Link ||
                 this.selectedObject instanceof elements.SelfLink);
-        return 'text' in this.selectedObject &&
-               ((isNode && !this.templateParams.locknodelabels) ||
-                (isLink && !this.templateParams.lockedgelabels));
+        return 'textBox' in this.selectedObject &&
+               ((isNode && !this.uiParams.locknodelabels) ||
+                (isLink && !this.uiParams.lockedgelabels));
     };
 
     Graph.prototype.keydown = function(e) {
@@ -348,22 +384,22 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
 
         if(key === 8) { // Backspace key.
             if(this.selectedObject !== null && this.canEditText()) {
-                this.selectedObject.text = this.selectedObject.text.substr(0, this.selectedObject.text.length - 1);
+                this.selectedObject.textBox.deleteChar();
                 this.resetCaret();
                 this.draw();
             }
-
             // Backspace is a shortcut for the back button, but do NOT want to change pages.
             return false;
         } else if(key === 46 && this.selectedObject !== null) { // Delete key
+            this.saveVersion();
             for (i = 0; i < this.nodes.length; i++) {
-                if (this.nodes[i] === this.selectedObject && !this.templateParams.locknodeset) {
+                if (this.nodes[i] === this.selectedObject && !this.uiParams.locknodeset) {
                     this.nodes.splice(i--, 1);
                     nodeDeleted = true;
                 }
             }
             for (i = 0; i < this.links.length; i++) {
-                if((this.links[i] === this.selectedObject && !this.templateParams.lockedgeset) ||
+                if((this.links[i] === this.selectedObject && !this.uiParams.lockedgeset) ||
                     nodeDeleted && (
                        this.links[i].node === this.selectedObject ||
                        this.links[i].nodeA === this.selectedObject ||
@@ -379,21 +415,40 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                 this.selectedObject = null;
                 this.draw();
             }
+        } else if(key === 37) { // Left arrow key
+            if(this.selectedObject !== null && this.canEditText()) {
+                this.selectedObject.textBox.caretLeft();
+                this.resetCaret();
+                this.draw();
+                }
+        } else if(key === 39) { // Right arrow key
+            if(this.selectedObject !== null && this.canEditText()) {
+                this.selectedObject.textBox.caretRight();
+                this.resetCaret();
+                this.draw();
+            }
+        } else if ((e.keyCode == 90 && e.ctrlKey && e.shiftKey) || (e.keyCode == 89 && e.ctrlKey)) {  //CTRL+SHIFT+z or CTRL+y
+            this.redo();
+        } else if (e.keyCode == 90 && e.ctrlKey) {  //CTRL+z
+            this.undo();
         }
     };
 
     Graph.prototype.dblclick = function(e) {
         var mouse = util.crossBrowserRelativeMousePos(e);
 
-        if (this.readOnly || this.templateParams.locknodeset) {
+        if (this.readOnly || this.uiParams.locknodeset) {
             return;
         }
 
         this.selectedObject = this.selectObject(mouse.x, mouse.y);
 
+        this.saveVersion();
+
         if(this.selectedObject === null) {
                 this.selectedObject = new elements.Node(this, mouse.x, mouse.y);
                 this.nodes.push(this.selectedObject);
+                this.selectedObject.justMoved = true;
                 this.resetCaret();
                 this.draw();
         } else {
@@ -411,15 +466,18 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
 
     Graph.prototype.mousemove = function(e) {
         var mouse = util.crossBrowserRelativeMousePos(e),
-            closestPoint,
-            mouseInHelpBox = this.helpBox.containsPoint(mouse.x, mouse.y);
+            closestPoint;
 
         if (this.readOnly) {
             return;
         }
 
-        if (mouseInHelpBox != this.helpBoxHighlighted) {
-            this.helpBoxHighlighted = mouseInHelpBox;
+        for (i = 0; i < this.buttons.length; i++){
+            if (this.buttons[i].containsPoint(mouse.x, mouse.y)){
+                this.buttons[i].highLighted = true;
+            }else{
+                this.buttons[i].highLighted = false;
+            }
             this.draw();
         }
 
@@ -454,6 +512,9 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                  this.snapNode(nodes[i]);
             }
             this.draw();
+        } else if(this.movingText){
+            this.selectedObject.textBox.setAnchorPoint(mouse.x, mouse.y);
+            this.draw();
         } else if(this.movingObject) {
             this.selectedObject.setAnchorPoint(mouse.x, mouse.y);
             if(this.selectedObject instanceof elements.Node) {
@@ -471,6 +532,7 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
 
         this.movingObject = false;
         this.movingGraph = false;
+        this.movingText = false;
 
         if(this.currentLink !== null) {
             if(!(this.currentLink instanceof elements.TemporaryLink)) {
@@ -484,12 +546,12 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
     };
 
     Graph.prototype.selectObject = function(x, y) {
-        var i;
-        if (this.helpBox.containsPoint(x, y) && this.selectedObject != this.helpBox) {
-            // Clicking the help box menu item toggles its select state.
-            return this.helpBox;
+        for (i = 0; i < this.buttons.length; i++){
+            if (this.buttons[i].containsPoint(x, y)){
+                return this.buttons[i];
+            }
         }
-
+        var i;
         for(i = 0; i < this.nodes.length; i++) {
             if(this.nodes[i].containsPoint(x, y)) {
                 return this.nodes[i];
@@ -498,6 +560,8 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
         for(i = 0; i < this.links.length; i++) {
             if(this.links[i].containsPoint(x, y)) {
                 return this.links[i];
+            }else if ('textBox' in this.links[i] && this.links[i].textBox.containsPoint(x, y)){
+                return this.links[i].textBox;
             }
         }
         return null;
@@ -555,7 +619,7 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                     var backupNodeLayout = backup.nodeGeometry[i];
                     var node = new elements.Node(this, backupNodeLayout[0], backupNodeLayout[1]);
                     node.isAcceptState = backupNode[1];
-                    node.text = backupNode[0].toString();
+                    node.textBox = new elements.TextBox(backupNode[0].toString(), node);
                     this.nodes.push(node);
                 }
 
@@ -567,7 +631,10 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                         // Self link has two identical nodes.
                         link = new elements.SelfLink(this, this.nodes[backupLink[0]]);
                         link.anchorAngle = backupLinkLayout.anchorAngle;
-                        link.text = backupLink[2].toString();
+                        link.textBox = new elements.TextBox(backupLink[2].toString(), link);
+                        if (backupLink.length > 3) {
+                            link.textBox.setAnchorPoint(backupLink[3].x, backupLink[3].y);
+                        }
                     } else if(backupLink[0] === -1) {
                         link = new elements.StartLink(this, this.nodes[backupLink[1]]);
                         link.deltaX = backupLinkLayout.deltaX;
@@ -576,8 +643,11 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                         link = new elements.Link(this, this.nodes[backupLink[0]], this.nodes[backupLink[1]]);
                         link.parallelPart = backupLinkLayout.parallelPart;
                         link.perpendicularPart = backupLinkLayout.perpendicularPart;
-                        link.text = backupLink[2].toString();
                         link.lineAngleAdjust = backupLinkLayout.lineAngleAdjust;
+                        link.textBox = new elements.TextBox(backupLink[2].toString(), link);
+                        if (backupLink.length > 3) {
+                            link.textBox.setAnchorPoint(backupLink[3].x, backupLink[3].y);
+                        }
                     }
                     if(link !== null) {
                         this.links.push(link);
@@ -607,7 +677,7 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
         for(i = 0; i < this.nodes.length; i++) {
             var node = this.nodes[i];
 
-            var nodeData = [node.text, node.isAcceptState];
+            var nodeData = [node.textBox.text, node.isAcceptState];
             var nodeLayout = [node.x, node.y];
 
             backup.nodeGeometry.push(nodeLayout);
@@ -623,7 +693,10 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                 linkLayout = {
                     'anchorAngle': link.anchorAngle,
                 };
-                linkData = [this.nodes.indexOf(link.node), this.nodes.indexOf(link.node), link.text];
+                linkData = [this.nodes.indexOf(link.node), this.nodes.indexOf(link.node), link.textBox.text];
+                if (link.textBox.dragged) {
+                    linkData.push(link.textBox.position);
+                }
             } else if(link instanceof elements.StartLink) {
                 linkLayout = {
                     'deltaX': link.deltaX,
@@ -636,9 +709,12 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
                     'parallelPart': link.parallelPart,
                     'perpendicularPart': link.perpendicularPart,
                 };
-                linkData = [this.nodes.indexOf(link.nodeA), this.nodes.indexOf(link.nodeB), link.text];
+                linkData = [this.nodes.indexOf(link.nodeA), this.nodes.indexOf(link.nodeB), link.textBox.text];
+                if (link.textBox.dragged) {
+                    linkData.push(link.textBox.position);
+                }
             }
-            if(linkData !== null && linkLayout !== null) {
+            if (linkData !== null && linkLayout !== null) {
                 backup.edges.push(linkData);
                 backup.edgeGeometry.push(linkLayout);
             }
@@ -646,11 +722,60 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
         this.textArea.val(JSON.stringify(backup));
     };
 
+    Graph.prototype.saveVersion = function () {
+        var curState = this.textArea.val();
+        if (this.versions.length == 0 || curState.localeCompare(this.versions[this.versionIndex]) != 0){
+            this.versionIndex++;
+            while (this.versionIndex < this.versions.length){ //Clear newer versions that have been overwritten by this save
+                this.versions.pop();
+            }
+            this.versions.push(curState);
+            if (this.versions.length > this.MAX_VERSIONS){    //Limit the size of this.versions
+                this.versions.shift();
+                this.versionIndex--;
+            }
+        }
+    };
+
+    Graph.prototype.undo = function () {
+        this.saveVersion();
+        if (this.versionIndex > 0){
+            this.versionIndex--;
+            this.textArea.val(this.versions[this.versionIndex]);
+            //Clear graph nodes and links
+            this.nodes = [];
+            this.links = [];
+            //Reload graph from serialisation
+            this.reload();
+            this.draw();
+        }
+    };
+
+    Graph.prototype.redo = function() {
+        if (this.versionIndex < this.versions.length - 1){
+            this.versionIndex++;
+            this.textArea.val(this.versions[this.versionIndex]);
+            //Clear graph nodes and links
+            this.nodes = [];
+            this.links = [];
+            //Reload graph from serialisation
+            this.reload();
+            this.draw();
+        }
+    };
+
+    Graph.prototype.clear = function () {
+        this.saveVersion();
+        this.nodes = [];
+        this.links = [];
+        this.save();
+        this.draw();
+    };
+
     Graph.prototype.destroy = function () {
         clearInterval(this.caretTimer); // Stop the caret timer.
         this.graphCanvas.canvas.off();  // Stop all events.
         this.graphCanvas.canvas.remove();
-
     };
 
     Graph.prototype.resetCaret = function () {
@@ -673,8 +798,11 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
         c.save();
         c.translate(0.5, 0.5);
 
-        this.helpBox.draw(c, this.selectedObject == this.helpBox, this.helpBoxHighlighted);
-        if (this.selectedObject != this.helpBox) {  // Only proceed if help info not showing.
+        for (i = 0; i < this.buttons.length; i++){
+            this.buttons[i].draw(c);
+        }
+
+        if (!this.helpBox.helpOpen) {  // Only proceed if help info not showing.
 
             for(i = 0; i < this.nodes.length; i++) {
                 c.lineWidth = 1;
@@ -683,7 +811,8 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
             }
             for(i = 0; i < this.links.length; i++) {
                 c.lineWidth = 1;
-                c.fillStyle = c.strokeStyle = (this.links[i] === this.selectedObject) ? 'blue' : 'black';
+                c.fillStyle = c.strokeStyle = (this.links[i] === this.selectedObject
+                                              || this.links[i].textBox === this.selectedObject) ? 'blue' : 'black';
                 this.links[i].draw(c);
             }
             if(this.currentLink !== null) {
@@ -695,48 +824,6 @@ define(['jquery', 'qtype_coderunner/graphutil', 'qtype_coderunner/graphelements'
 
         c.restore();
         this.save();
-    };
-
-    Graph.prototype.drawText = function(originalText, x, y, angleOrNull, theObject) {
-        var c = this.getCanvas().getContext('2d'),
-            text = util.convertLatexShortcuts(originalText),
-            width,
-            dy;
-
-        c.font = this.fontSize() + 'px Arial';
-        width = c.measureText(text).width;
-
-        // Center the text.
-        x -= width / 2;
-
-        // Position the text intelligently if given an angle.
-        if(angleOrNull !== null) {
-            var cos = Math.cos(angleOrNull);
-            var sin = Math.sin(angleOrNull);
-            var cornerPointX = (width / 2 + this.textOffset()) * (cos > 0 ? 1 : -1);
-            var cornerPointY = (10 + this.textOffset()) * (sin > 0 ? 1 : -1);
-            var slide = sin * Math.pow(Math.abs(sin), 40) * cornerPointX - cos * Math.pow(Math.abs(cos), 10) * cornerPointY;
-            x += cornerPointX - sin * slide;
-            y += cornerPointY + cos * slide;
-        }
-
-        // Draw text and caret (round the coordinates so the caret falls on a pixel).
-        if('advancedFillText' in c) {
-            c.advancedFillText(text, originalText, x + width / 2, y, angleOrNull);
-        } else {
-            x = Math.round(x);
-            y = Math.round(y);
-            dy = Math.round(this.fontSize() / 3); // Don't understand this.
-            c.fillText(text, x, y + dy);
-            if(theObject == this.selectedObject && this.caretVisible && this.hasFocus() && document.hasFocus()) {
-                x += width;
-                dy = Math.round(this.fontSize() / 2);
-                c.beginPath();
-                c.moveTo(x, y - dy);
-                c.lineTo(x, y + dy);
-                c.stroke();
-            }
-        }
     };
 
     return {

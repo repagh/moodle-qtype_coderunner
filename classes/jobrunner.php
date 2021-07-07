@@ -47,7 +47,6 @@ class qtype_coderunner_jobrunner {
     public function run_tests($question, $code, $attachments, $testcases, $isprecheck, $answerlanguage) {
         global $CFG;
 
-        $question->get_prototype();
         if (empty($question->prototype)) {
             // Missing prototype. We can't run this question.
             $outcome = new qtype_coderunner_testing_outcome(0, 0, false);
@@ -56,7 +55,6 @@ class qtype_coderunner_jobrunner {
             $outcome->set_status(qtype_coderunner_testing_outcome::STATUS_MISSING_PROTOTYPE, $message);
             return $outcome;
         }
-
         $this->question = $question;
         $this->code = $code;
         $this->testcases = array_values($testcases);
@@ -162,6 +160,9 @@ class qtype_coderunner_jobrunner {
         } else {
             $outcome = null; // Something broke badly.
         }
+        if ($outcome && isset($run->sandboxinfo)) {
+            $outcome->add_sandbox_info($run->sandboxinfo);
+        }
         return $outcome;
     }
 
@@ -194,6 +195,9 @@ class qtype_coderunner_jobrunner {
             $this->allruns[] = $testprog;
             $run = $this->sandbox->execute($testprog, $this->language,
                     $input, $this->files, $this->sandboxparams);
+            if (isset($run->sandboxinfo)) {
+                $outcome->add_sandbox_info($run->sandboxinfo);
+            }
             if ($run->error !== qtype_coderunner_sandbox::OK) {
                 $outcome->set_status(
                     qtype_coderunner_testing_outcome::STATUS_SANDBOX_ERROR,
@@ -251,7 +255,7 @@ class qtype_coderunner_jobrunner {
         try {
             if ($run->result !== qtype_coderunner_sandbox::RESULT_SUCCESS) {
                 $error = get_string('brokentemplategrader', 'qtype_coderunner',
-                        array('output' => $run->cmpinfo . "\n" . $run->stderr));
+                        array('output' => $run->cmpinfo . "\n" . $run->output . "\n" . $run->stderr));
                 throw new Exception($error);
             }
 
